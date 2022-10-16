@@ -62,7 +62,7 @@ function style(list) {
 	function handleSheet(s) {
 		let t = "{"
 		for (const k in s) {
-			t += k + ":" + s[k] + ""
+			t += k + ":" + s[k] + ";"
 		}
 		t += "}"
 		return t
@@ -88,7 +88,7 @@ function style(list) {
 			} else if (typeof(val) === "object") {
 				post += handleSheetEx(sel + " " + key, val)
 			} else {
-				t += key + ":" + val + ""
+				t += key + ":" + val + ";"
 			}
 		}
 		t += "}" + post
