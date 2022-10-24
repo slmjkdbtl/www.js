@@ -2,9 +2,11 @@
 // TODO: async fs
 
 import http from "http"
-import fs from "fs/promises"
+import fs from "fs"
 import url from "url"
 import path from "path"
+
+const nl = process.env.NODE_ENV === "development" ? "\n" : ""
 
 // html builder
 function tag(tagname, attrs, children) {
@@ -31,7 +33,7 @@ function tag(tagname, attrs, children) {
 
 	html += ">"
 
-	if (typeof(children) === "string") {
+	if (typeof(children) === "string" || typeof(children) === "number") {
 		html += children
 	} else if (Array.isArray(children)) {
 		for (const child of children) {
@@ -47,36 +49,40 @@ function tag(tagname, attrs, children) {
 	}
 
 	if (children !== undefined && children !== null) {
-		html += `</${tagname}>`
+		html += `</${tagname}>` + nl
 	}
 
 	return html
 
 }
 
+const camelToKababCase = (str) =>
+	str.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
+
+// TODO: @font-face
 // sass-like css preprocessor
 function style(list) {
 
 	let text = ""
 
 	function handleSheet(s) {
-		let t = "{"
+		let t = "{" + nl
 		for (const k in s) {
-			t += k + ":" + s[k] + ";"
+			t += camelToKababCase(k) + ":" + s[k] + ";" + nl
 		}
-		t += "}"
+		t += "}" + nl
 		return t
 	}
 
 	function handleSheetEx(sel, sheet) {
-		let t = sel + " {"
+		let t = sel + " {" + nl
 		let post = ""
 		for (const key in sheet) {
 			const val = sheet[key]
 			// media
 			if (key === "@media") {
 				for (const cond in val) {
-					post += "@media " + cond + "{" + sel + handleSheet(val[cond]) + "}"
+					post += "@media " + cond + "{" + nl + sel + handleSheet(val[cond]) + "}" + nl
 				}
 			// pseudo class
 			} else if (key[0] === ":") {
@@ -88,10 +94,10 @@ function style(list) {
 			} else if (typeof(val) === "object") {
 				post += handleSheetEx(sel + " " + key, val)
 			} else {
-				t += key + ":" + val + ";"
+				t += camelToKababCase(key) + ":" + val + ";" + nl
 			}
 		}
-		t += "}" + post
+		t += "}" + nl + post
 		return t
 	}
 
@@ -100,11 +106,11 @@ function style(list) {
 		if (sel === "@keyframes") {
 			for (const name in sheet) {
 				const map = sheet[name]
-				text += "@keyframes " + name + "{"
+				text += "@keyframes " + name + "{" + nl
 				for (const time in map) {
 					text += time + handleSheet(map[time])
 				}
-				text += "}"
+				text += "}" + nl
 			}
 		} else {
 			text += handleSheetEx(sel, sheet)
@@ -157,20 +163,20 @@ function makeServer() {
 
 	return {
 
-		onError(f) {
+		error(f) {
 			onError = f
 		},
 
-		onNotFound(f) {
+		notfound(f) {
 			onNotFound = f
 		},
 
-		onRequest(cb) {
+		handle(cb) {
 			handlers.push(cb)
 		},
 
-		onMatch(pat, cb) {
-			this.onRequest((req, res) => {
+		match(pat, cb) {
+			this.handle((req, res) => {
 				const match = matchUrl(pat, req.path)
 				if (match) {
 					cb({
@@ -181,15 +187,41 @@ function makeServer() {
 			})
 		},
 
-		serveFiles(mnt, root) {
-			this.onRequest((req, res) => {
-				if (!req.path.startsWith(mnt)) {
+		get(pat, cb) {
+			this.handle((req, res) => {
+				if (req.method !== "GET") return
+				const match = matchUrl(pat, req.path)
+				if (match) {
+					cb({
+						...req,
+						params: match,
+					}, res)
+				}
+			})
+		},
+
+		post(pat, cb) {
+			this.handle((req, res) => {
+				if (req.method !== "POST") return
+				const match = matchUrl(pat, req.path)
+				if (match) {
+					cb({
+						...req,
+						params: match,
+					}, res)
+				}
+			})
+		},
+
+		files(route, root) {
+			this.handle((req, res) => {
+				if (!req.path.startsWith(route)) {
 					return
 				}
 				let p = root || "."
-				const child = req.path.replace(new RegExp(`^${mnt}`), "")
+				const child = req.path.replace(new RegExp(`^${route}`), "")
 				if (child) {
-					p += "/" + child
+					p += child
 				}
 				if (!fs.existsSync(p)) {
 					return
@@ -209,7 +241,7 @@ function makeServer() {
 
 		start(port) {
 
-			http.createServer((req, res) => {
+			const server = http.createServer((req, res) => {
 
 				// TODO: url.parse is deprecated
 				const requrl = url.parse(req.url, true)
@@ -217,6 +249,7 @@ function makeServer() {
 				const req2 = {
 					headers: req.headers,
 					url: req.url,
+					method: req.method,
 					path: requrl.pathname,
 					query: requrl.query,
 				}
@@ -255,7 +288,7 @@ function makeServer() {
 					},
 
 					html(code) {
-						this.header("Content-Type", "text/html charset=utf-8")
+						this.header("Content-Type", "text/html; charset=utf-8")
 						this.status(status || 200)
 						body = code
 						send()
@@ -358,7 +391,12 @@ function makeServer() {
 					onNotFound(req2, res2)
 				}
 
-			}).listen(port)
+			})
+
+			server.listen(port)
+
+			return server
+
 		},
 
 	}
